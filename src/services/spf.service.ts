@@ -454,6 +454,7 @@ export class SPFService {
           return {
             ...spfRecord, // Keep the original record as the main record
             redirects,
+            includes: includes, // always an array
             redirectedRecord: {
               raw: redirectedRecord.raw,
               mechanisms: redirectedRecord.mechanisms,
@@ -468,6 +469,7 @@ export class SPFService {
           return {
             ...redirectedRecord,
             redirects,
+            includes: includes, // always an array
             processedRedirects: totalProcessedRedirects,
             processedIncludes: totalProcessedIncludes
           };

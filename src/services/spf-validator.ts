@@ -113,6 +113,15 @@ export class SPFValidator {
     const mechanismIssues = this.validateMechanisms(mechanisms);
     issues.push(...mechanismIssues);
 
+    // Check lookup limit
+    if (lookupCount > this.MAX_LOOKUPS) {
+      issues.push({
+        type: 'error',
+        message: `Too many DNS lookups (${lookupCount} > ${this.MAX_LOOKUPS})`,
+        recommendation: 'Consider using SPF flattening or subdomains to reduce DNS lookups below 10'
+      });
+    }
+
     // Generate recommendations
     recommendations.push(...this.generateRecommendations(mechanisms, issues, lookupCount));
 
