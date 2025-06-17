@@ -4,6 +4,7 @@ import { prettyJSON } from 'hono/pretty-json';
 import { DNSController } from './controllers/dns.controller';
 import { SPFValidatorController } from './controllers/spf-validator.controller';
 import { SPFController } from './controllers/spf.controller';
+import { DKIMController } from './controllers/dkim.controller';
 
 // Create Hono app
 const app = new Hono();
@@ -12,6 +13,7 @@ const app = new Hono();
 const dnsController = new DNSController();
 const spfValidatorController = new SPFValidatorController();
 const spfValidator = new SPFController();
+const dkimController = new DKIMController();
 
 // Middleware
 app.use('*', cors());
@@ -22,6 +24,7 @@ app.get('/', (c) => dnsController.getInfo(c));
 app.get('/validate', (c) => dnsController.validateDomain(c));
 app.get('/validate-spf', (c) => spfValidatorController.validateSPF(c));
 app.get('/spf', (c) => spfValidator.getSPFRecord(c));
+app.get('/dkim', (c) => dkimController.getDKIMRecord(c));
 // Error handling
 app.onError((err, c) => dnsController.handleError(err, c));
 
