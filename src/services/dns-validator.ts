@@ -19,6 +19,8 @@
  * - Provides comprehensive error handling and logging
  */
 
+import { EXTERNAL_URLS } from '../config';
+
 interface DNSValidatorResponse {
   exists: boolean;
   error?: string;
@@ -43,7 +45,7 @@ interface DNSResponse {
 
 export class DNSValidator {
   // DNS-over-HTTPS endpoint for secure DNS queries
-  private readonly dnsApiUrl = 'https://cloudflare-dns.com/dns-query';
+  private readonly dnsApiUrl = EXTERNAL_URLS.DNS.CLOUDFLARE;
 
   constructor() {
     console.log('[DNS Validator] Initialized with DNS-over-HTTPS endpoint:', this.dnsApiUrl);

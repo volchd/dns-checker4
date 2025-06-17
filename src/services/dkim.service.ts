@@ -1,5 +1,6 @@
 import { DNSResponse, DNSRecord } from '../types/dns.types';
 import { DKIMRecord } from '../types/dkim.types';
+import { EXTERNAL_URLS } from '../config';
 
 /**
  * DKIM Service - Unified DNS DKIM Record Service
@@ -283,7 +284,7 @@ export class DKIMService {
       const dkimDomain = `${selector}._domainkey.${domain}`;
       console.log(`🔍 Fetching DKIM record for: ${dkimDomain}`);
 
-      const response = await fetch(`https://dns.google/resolve?name=${dkimDomain}&type=TXT`);
+      const response = await fetch(`${EXTERNAL_URLS.DNS.GOOGLE}?name=${dkimDomain}&type=TXT`);
       
       if (!response.ok) {
         throw new Error(`DNS query failed with status: ${response.status}`);
@@ -306,7 +307,7 @@ export class DKIMService {
       if (cnameRecord) {
         console.log(`🔄 Found CNAME redirect: ${dkimDomain} -> ${cnameRecord.data}`);
         // Follow the CNAME redirect
-        const redirectResponse = await fetch(`https://dns.google/resolve?name=${cnameRecord.data}&type=TXT`);
+        const redirectResponse = await fetch(`${EXTERNAL_URLS.DNS.GOOGLE}?name=${cnameRecord.data}&type=TXT`);
         if (redirectResponse.ok) {
           const redirectDnsResponse: DNSResponse = await redirectResponse.json();
           if (redirectDnsResponse.Status === 0 && redirectDnsResponse.Answer && redirectDnsResponse.Answer.length > 0) {

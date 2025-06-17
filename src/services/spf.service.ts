@@ -1,5 +1,6 @@
 import { DNSResponse, DNSRecord } from '../types/dns.types';
 import { SPFRedirect } from '../types/spf.types';
+import { EXTERNAL_URLS } from '../config';
 
 /**
  * SPF Service - Unified DNS SPF Record Service
@@ -254,7 +255,7 @@ export class SPFService {
     console.log(`🔍 Fetching SPF record for domain: ${domain}`);
     
     try {
-      const response = await fetch(`https://cloudflare-dns.com/dns-query?name=${domain}&type=TXT`, {
+      const response = await fetch(`${EXTERNAL_URLS.DNS.CLOUDFLARE}?name=${domain}&type=TXT`, {
         headers: {
           'Accept': 'application/dns-json',
         },
