@@ -1,0 +1,112 @@
+{
+    "total_score": 66,
+    "total_max_score": 100,
+    "spf_result": {
+        "isValid": true,
+        "score": 20,
+        "record": "v=spf1 include:_spf.google.com ~all",
+        "redirectRecord": "",
+        "issues": [],
+        "recommendations": [
+            "Monitor include mechanisms to ensure they remain valid and accessible",
+            "Regularly review and update your SPF record as your email infrastructure changes",
+            "Set up DMARC to complement SPF and DKIM for comprehensive email authentication",
+            "Monitor SPF authentication rates in your email analytics"
+        ],
+        "mechanisms": [
+            {
+                "type": "include",
+                "value": "_spf.google.com",
+                "qualifier": "+"
+            },
+            {
+                "type": "all",
+                "value": "",
+                "qualifier": "~"
+            }
+        ],
+        "lookupCount": 4,
+        "redirects": [],
+        "details": {
+            "hasVersion": true,
+            "hasAllMechanism": true,
+            "allMechanismQualifier": "~",
+            "hasMultipleRecords": false,
+            "hasDeprecatedMechanisms": false,
+            "exceedsLookupLimit": false,
+            "hasPassAll": false,
+            "finalDomain": "google.com"
+        }
+    },
+    "kdim_result": {
+        "isValid": true,
+        "score": 17,
+        "records": [
+            {
+                "raw": "k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1Lztpxs7yUxQEsbDFhjMc9kZVZu5P/COYEUIX4B39IL4SXAbv4viIlT9E6F6iZmTh1go7+9WQLywwgwjXMJx/Dz0RgMoPeyp5NRy4l320DPYibNqVMWa5iQ2WiImQC0en1O9uhLLvzaSZJ03fvGmCo9jMo0GwKzLNe14xMgn/px2L5N/3IKlKX4bqUAJTUt8L993ZlWzvgMnSFSt8B+euSKSrtAiopdy4r1yO4eN5goBASrGW0eLQc1lYouNvCrcTQpos4/GEAqiGzpqueJLmBfOO4clNvVvpPkvQs2BHw9I9LmIjaMxTNGxkGBRaP3utDiKXXqu1K+LRzl0HCNSdQIDAQAB",
+                "parsed": {
+                    "version": "",
+                    "keyType": "rsa",
+                    "publicKey": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1Lztpxs7yUxQEsbDFhjMc9kZVZu5P/COYEUIX4B39IL4SXAbv4viIlT9E6F6iZmTh1go7+9WQLywwgwjXMJx/Dz0RgMoPeyp5NRy4l320DPYibNqVMWa5iQ2WiImQC0en1O9uhLLvzaSZJ03fvGmCo9jMo0GwKzLNe14xMgn/px2L5N/3IKlKX4bqUAJTUt8L993ZlWzvgMnSFSt8B+euSKSrtAiopdy4r1yO4eN5goBASrGW0eLQc1lYouNvCrcTQpos4/GEAqiGzpqueJLmBfOO4clNvVvpPkvQs2BHw9I9LmIjaMxTNGxkGBRaP3utDiKXXqu1K+LRzl0HCNSdQIDAQAB",
+                    "notes": "",
+                    "serviceType": "",
+                    "granularity": "",
+                    "hashAlgorithms": [],
+                    "flags": []
+                },
+                "selector": "arc-20160816"
+            }
+        ],
+        "issues": [
+            {
+                "type": "warning",
+                "message": "Missing DKIM version in selector arc-20160816",
+                "recommendation": "Consider adding v=DKIM1 to your DKIM records for explicit version declaration"
+            },
+            {
+                "type": "info",
+                "message": "Good key length (2352 bits) in selector arc-20160816",
+                "recommendation": "Key length meets modern security standards"
+            },
+            {
+                "type": "warning",
+                "message": "Only one DKIM selector found",
+                "recommendation": "Consider implementing multiple selectors to enable key rotation without downtime"
+            }
+        ],
+        "recommendations": [
+            "Implement multiple DKIM selectors to enable key rotation without downtime",
+            "Monitor DKIM authentication rates in your email analytics",
+            "Set up DMARC to complement DKIM and SPF for comprehensive email authentication"
+        ],
+        "details": {
+            "hasVersion": false,
+            "hasValidKeyType": true,
+            "hasValidPublicKey": true,
+            "hasValidHashAlgorithms": false,
+            "keyLength": 2352,
+            "finalDomain": "google.com"
+        }
+    },
+    "dmarc_result": {
+        "isValid": true,
+        "score": 29,
+        "record": "v=DMARC1; p=reject; rua=mailto:mailauth-reports@google.com",
+        "issues": [],
+        "recommendations": [
+            "Consider adding subdomain policy (sp=) to protect subdomains",
+            "DMARC is properly configured with reject policy - excellent security posture"
+        ],
+        "details": {
+            "hasVersion": true,
+            "hasValidPolicy": true,
+            "hasSubdomainPolicy": false,
+            "hasPercentage": false,
+            "hasReports": true,
+            "hasFailureOptions": false,
+            "hasAdkim": false,
+            "hasAspf": false,
+            "finalDomain": "google.com"
+        }
+    }
+}

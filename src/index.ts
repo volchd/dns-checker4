@@ -8,6 +8,7 @@ import { DKIMController } from './controllers/dkim.controller';
 import { DKIMValidatorController } from './controllers/dkim-validator.controller';
 import { DMARCController } from './controllers/dmarc.controller';
 import { DMARCValidatorController } from './controllers/dmarc-validator.controller';
+import { ValidateDomainController } from './controllers/validate-domain.controller';
 
 // Create Hono app
 const app = new Hono();
@@ -20,6 +21,7 @@ const dkimController = new DKIMController();
 const dkimValidatorController = new DKIMValidatorController();
 const dmarcController = new DMARCController();
 const dmarcValidatorController = new DMARCValidatorController();
+const validateDomainController = new ValidateDomainController();
 
 // Middleware
 app.use('*', cors());
@@ -28,6 +30,7 @@ app.use('*', prettyJSON());
 // Routes
 app.get('/', (c) => dnsController.getInfo(c));
 app.get('/validate', (c) => dnsController.validateDomain(c));
+app.get('/validate-domain', (c) => validateDomainController.validateDomain(c));
 app.get('/validate-spf', (c) => spfValidatorController.validateSPF(c));
 app.get('/spf', (c) => spfValidator.getSPFRecord(c));
 app.get('/dkim', (c) => dkimController.getDKIMRecord(c));
