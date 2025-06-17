@@ -26,6 +26,19 @@ export interface SPFRecord {
     value: string;
   }[];
   redirects?: SPFRedirect[];
+  includes?: {
+    domain: string;
+    record: string;
+    mechanisms: {
+      type: string;
+      value: string;
+      qualifier?: string;
+    }[];
+    modifiers: {
+      type: string;
+      value: string;
+    }[];
+  }[];
   redirectedRecord?: {
     raw: string;
     mechanisms: {
@@ -38,6 +51,9 @@ export interface SPFRecord {
       value: string;
     }[];
   };
+  // Tracking counts for recursive processing
+  processedRedirects?: number;
+  processedIncludes?: number;
 }
 
 export interface SPFResponse {
@@ -53,8 +69,11 @@ export interface SPFResponse {
     hasRedirectedRecord?: boolean;
     redirectedMechanisms?: number;
     redirectedModifiers?: number;
+    processedRedirects: number;
+    processedIncludes: number;
   };
   redirects?: SPFRedirect[];
+  includes?: SPFRecord['includes'];
   hasRedirects?: boolean;
   finalDomain?: string;
   redirectedRecord?: {
@@ -149,7 +168,9 @@ export class SPFService {
         totalMechanisms: spfRecord.mechanisms.length,
         totalModifiers: spfRecord.modifiers.length,
         hasRedirects: false,
-        redirectCount: 0
+        redirectCount: 0,
+        processedRedirects: spfRecord.processedRedirects || 0,
+        processedIncludes: spfRecord.processedIncludes || 0
       },
       metadata: {
         timestamp: new Date().toISOString(),
@@ -185,6 +206,11 @@ export class SPFService {
       response.summary.hasRedirects = false;
       response.summary.redirectCount = 0;
       response.summary.hasRedirectedRecord = false;
+    }
+
+    // Handle includes information if present
+    if (spfRecord.includes && spfRecord.includes.length > 0) {
+      response.includes = spfRecord.includes;
     }
 
     return response;
@@ -350,12 +376,20 @@ export class SPFService {
     // Parse the SPF record into structured components
     const spfRecord = this.parseSPFRecord(rawRecord);
     const redirects: SPFRedirect[] = [];
+    const includes: SPFRecord['includes'] = [];
+    
+    // Initialize counters for recursive processing
+    let totalProcessedRedirects = 0;
+    let totalProcessedIncludes = 0;
 
     // Check for redirect modifier in the SPF record
     const redirectModifier = spfRecord.modifiers.find(mod => mod.type === 'redirect');
     if (redirectModifier) {
       const redirectDomain = redirectModifier.value;
       console.log(`🔄 Found redirect modifier: ${domain} -> ${redirectDomain}`);
+      
+      // Increment redirect counter
+      totalProcessedRedirects++;
       
       // Add current redirect to the tracking list
       redirects.push({
@@ -371,6 +405,10 @@ export class SPFService {
       
       if (redirectedRecord) {
         console.log(`✅ Successfully retrieved redirected record from: ${redirectDomain}`);
+        
+        // Add counts from redirected record
+        totalProcessedRedirects += redirectedRecord.processedRedirects || 0;
+        totalProcessedIncludes += redirectedRecord.processedIncludes || 0;
         
         // Merge any redirects from the redirected record
         if (redirectedRecord.redirects) {
@@ -388,14 +426,18 @@ export class SPFService {
               raw: redirectedRecord.raw,
               mechanisms: redirectedRecord.mechanisms,
               modifiers: redirectedRecord.modifiers
-            }
+            },
+            processedRedirects: totalProcessedRedirects,
+            processedIncludes: totalProcessedIncludes
           };
         } else {
           // Return the redirected record with updated redirect chain
           console.log(`📤 Returning redirected record with ${redirects.length} redirects in chain`);
           return {
             ...redirectedRecord,
-            redirects
+            redirects,
+            processedRedirects: totalProcessedRedirects,
+            processedIncludes: totalProcessedIncludes
           };
         }
       } else {
@@ -410,31 +452,54 @@ export class SPFService {
         const includeDomain = mechanism.value;
         console.log(`📋 Processing include mechanism: ${includeDomain}`);
         
+        // Increment include counter
+        totalProcessedIncludes++;
+        
         const includeRecord = await this.getSPFRecord(includeDomain, new Set([...visitedDomains]), false);
         
-        if (includeRecord && includeRecord.redirects) {
-          redirects.push(...includeRecord.redirects);
-          console.log(`📝 Added ${includeRecord.redirects.length} redirects from include: ${includeDomain}`);
+        if (includeRecord) {
+          // Add counts from included record
+          totalProcessedRedirects += includeRecord.processedRedirects || 0;
+          totalProcessedIncludes += includeRecord.processedIncludes || 0;
+          
+          // Add include to tracking list
+          includes.push({
+            domain: includeDomain,
+            record: includeRecord.raw,
+            mechanisms: includeRecord.mechanisms,
+            modifiers: includeRecord.modifiers
+          });
+          
+          if (includeRecord.redirects) {
+            redirects.push(...includeRecord.redirects);
+            console.log(`📝 Added ${includeRecord.redirects.length} redirects from include: ${includeDomain}`);
+          }
         }
       }
     }
 
     // If this is the initial call and we have redirects from includes, preserve the original record
-    if (isInitialCall && redirects.length > 0) {
-      console.log(`💾 Preserving original record (has ${redirects.length} redirects from includes)`);
+    if (isInitialCall && (redirects.length > 0 || includes.length > 0)) {
+      console.log(`💾 Preserving original record (has ${redirects.length} redirects, ${includes.length} includes from processing)`);
       return {
         ...spfRecord,
-        redirects: redirects.length > 0 ? redirects : undefined
+        redirects: redirects.length > 0 ? redirects : undefined,
+        includes: includes.length > 0 ? includes : undefined,
+        processedRedirects: totalProcessedRedirects,
+        processedIncludes: totalProcessedIncludes
       };
     }
 
     // Return the final result
     const result = {
       ...spfRecord,
-      redirects: redirects.length > 0 ? redirects : undefined
+      redirects: redirects.length > 0 ? redirects : undefined,
+      includes: includes.length > 0 ? includes : undefined,
+      processedRedirects: totalProcessedRedirects,
+      processedIncludes: totalProcessedIncludes
     };
     
-    console.log(`✅ Final SPF record for ${domain}: ${redirects.length} redirects, ${spfRecord.mechanisms.length} mechanisms`);
+    console.log(`✅ Final SPF record for ${domain}: ${redirects.length} redirects, ${includes.length} includes, ${totalProcessedRedirects} total processed redirects, ${totalProcessedIncludes} total processed includes`);
     return result;
   }
 
