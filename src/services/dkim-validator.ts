@@ -600,10 +600,10 @@ export class DKIMValidator {
       issues,
       recommendations,
       details: {
-        hasVersion: records.every(r => r.parsed.version === 'DKIM1'),
-        hasValidKeyType: records.every(r => r.parsed.keyType === 'rsa' || !r.parsed.keyType),
-        hasValidPublicKey: records.every(r => r.parsed.publicKey && r.parsed.publicKey.trim() !== '' && this.isValidDKIMPublicKey(r.parsed.publicKey, true)),
-        hasValidHashAlgorithms: records.every(r => Array.isArray(r.parsed.hashAlgorithms) && r.parsed.hashAlgorithms.length > 0),
+        hasVersion: records.length > 0 && records.every(r => r.parsed.version === 'DKIM1'),
+        hasValidKeyType: records.length > 0 && records.every(r => r.parsed.keyType === 'rsa' || !r.parsed.keyType),
+        hasValidPublicKey: records.length > 0 && records.every(r => r.parsed.publicKey && r.parsed.publicKey.trim() !== '' && this.isValidDKIMPublicKey(r.parsed.publicKey, true)),
+        hasValidHashAlgorithms: records.length > 0 && records.every(r => Array.isArray(r.parsed.hashAlgorithms) && r.parsed.hashAlgorithms.length > 0),
         keyLength,
         finalDomain
       }
