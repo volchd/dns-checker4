@@ -14,7 +14,7 @@ export type DKIMRecord = {
 export type DKIMValidationResult = {
   isValid: boolean;
   score: number;
-  record: string;
+  records: DKIMRecordData[];
   issues: DKIMIssue[];
   recommendations: string[];
   details: {
@@ -27,6 +27,12 @@ export type DKIMValidationResult = {
   };
 };
 
+export type DKIMRecordData = {
+  raw: string;
+  parsed: DKIMRecord;
+  selector?: string;
+};
+
 export type DKIMIssue = {
   type: 'error' | 'warning' | 'info';
   message: string;
@@ -34,10 +40,9 @@ export type DKIMIssue = {
 };
 
 export type DKIMScoreBreakdown = {
-  recordPresent: number;
-  validVersion: number;
-  validKeyType: number;
-  validPublicKey: number;
-  validHashAlgorithms: number;
-  total: number;
+  dkimImplemented: number;      // 10 points (all or nothing)
+  keyLength: number;            // Up to 5 points (2048+ = 5, 1024+ = 3, <1024 = 0)
+  multipleSelectors: number;    // 3 points (if ≥2 selectors; 0 if only one)
+  noTestMode: number;           // 2 points (if no test flags; 0 if any present)
+  total: number;                // Total score (max 20)
 }; 

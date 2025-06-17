@@ -130,7 +130,7 @@ export class DKIMService {
    */
   private isValidDomain(domain: string): boolean {
     // Basic domain validation - should contain at least one dot and valid characters
-    const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
+    const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)+$/;
     return domainRegex.test(domain) && domain.length > 0 && domain.length <= 253;
   }
 
@@ -301,6 +301,30 @@ export class DKIMService {
         return null;
       }
 
+      // Check for CNAME redirects first
+      const cnameRecord = dnsResponse.Answer.find(record => record.type === 5); // CNAME type
+      if (cnameRecord) {
+        console.log(`🔄 Found CNAME redirect: ${dkimDomain} -> ${cnameRecord.data}`);
+        // Follow the CNAME redirect
+        const redirectResponse = await fetch(`https://dns.google/resolve?name=${cnameRecord.data}&type=TXT`);
+        if (redirectResponse.ok) {
+          const redirectDnsResponse: DNSResponse = await redirectResponse.json();
+          if (redirectDnsResponse.Status === 0 && redirectDnsResponse.Answer && redirectDnsResponse.Answer.length > 0) {
+            // Find the DKIM record in the redirected response
+            const dkimRecord = redirectDnsResponse.Answer.find(record => {
+              const data = record.data.toLowerCase();
+              return data.includes('v=dkim1') || 
+                     (data.includes('k=') && data.includes('p='));
+            });
+            if (dkimRecord) {
+              console.log(`✅ Found DKIM record via CNAME redirect for ${dkimDomain}`);
+              console.log(`${dkimRecord.data}`);
+              return dkimRecord.data;
+            }
+          }
+        }
+      }
+
       // Find the DKIM record (should contain key type and public key)
       const dkimRecord = dnsResponse.Answer.find(record => {
         const data = record.data.toLowerCase();
@@ -363,7 +387,7 @@ export class DKIMService {
           parsed.keyType = value;
           break;
         case 'p':
-          parsed.publicKey = value;
+          parsed.publicKey = value.replace(/\s+/g, ''); // Remove all whitespace including newlines
           break;
         case 'n':
           parsed.notes = value;
