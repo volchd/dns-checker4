@@ -161,7 +161,8 @@ describe('SPFService', () => {
       expect(result?.processedRedirects).toBe(1); // One redirect from main domain
       expect(result?.processedIncludes).toBe(2); // One include from main domain + one from redirected domain
       expect(result?.redirects).toHaveLength(1);
-      expect(result?.includes).toHaveLength(1); // Only includes from the main domain are tracked
+      expect(Array.isArray(result?.includes)).toBe(true);
+      expect(result?.includes?.length).toBe(2); // Includes from both the main and redirected domains are tracked
     });
   });
 

@@ -30,6 +30,8 @@ export class SPFValidator {
     let redirectRecord = '';
     let redirects: SPFRedirect[] = [];
     let finalDomain = domain;
+    let processedRedirects = 0;
+    let processedIncludes = 0;
 
     // Get SPF record using SPF service
     const spfResult = await this.spfService.getSPFRecordForDomain(domain);
@@ -67,6 +69,15 @@ export class SPFValidator {
     const spfResponse = spfResult as SPFResponse;
     console.log(`Successfully retrieved SPF record for domain: ${domain}`);
 
+    // Get the processed counts from the SPF service response
+    processedRedirects = spfResponse.summary.processedRedirects;
+    processedIncludes = spfResponse.summary.processedIncludes;
+    
+    // Calculate total lookup count using the processed fields
+    lookupCount = processedRedirects + processedIncludes;
+    console.log(`Calculated lookup count: ${lookupCount} (redirects: ${processedRedirects}, includes: ${processedIncludes})`);
+    console.log(`Lookup limit check: ${lookupCount} > ${this.MAX_LOOKUPS} = ${lookupCount > this.MAX_LOOKUPS}`);
+
     // Handle redirects if present
     if (spfResponse.hasRedirects && spfResponse.redirectedRecord) {
       console.log(`SPF record has redirects, using redirected record for validation`);
@@ -98,15 +109,12 @@ export class SPFValidator {
 
     console.log(`Parsed mechanisms:`, mechanisms);
 
-    // Calculate lookup count
-    lookupCount = this.calculateLookupCount(mechanisms);
-
     // Validate mechanisms
     const mechanismIssues = this.validateMechanisms(mechanisms);
     issues.push(...mechanismIssues);
 
     // Generate recommendations
-    recommendations.push(...this.generateRecommendations(mechanisms, issues));
+    recommendations.push(...this.generateRecommendations(mechanisms, issues, lookupCount));
 
     // Calculate score
     const score = this.calculateScore(mechanisms, issues, lookupCount);
@@ -171,24 +179,10 @@ export class SPFValidator {
     return issues;
   }
 
-  private calculateLookupCount(mechanisms: SPFMechanism[]): number {
-    return mechanisms.reduce((count, mechanism) => {
-      switch (mechanism.type) {
-        case 'include':
-        case 'a':
-        case 'mx':
-        case 'exists':
-        case 'redirect':
-          return count + 1;
-        default:
-          return count;
-      }
-    }, 0);
-  }
-
   private generateRecommendations(
     mechanisms: SPFMechanism[], 
-    issues: SPFIssue[]
+    issues: SPFIssue[],
+    lookupCount: number
   ): string[] {
     const recommendations: string[] = [];
 
@@ -200,7 +194,6 @@ export class SPFValidator {
     });
 
     // Add general recommendations
-    const lookupCount = this.calculateLookupCount(mechanisms);
     if (lookupCount > this.MAX_LOOKUPS) {
       recommendations.push(
         'Consider using SPF flattening or subdomains to reduce DNS lookups below 10'

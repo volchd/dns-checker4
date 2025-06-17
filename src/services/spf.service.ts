@@ -410,6 +410,38 @@ export class SPFService {
         totalProcessedRedirects += redirectedRecord.processedRedirects || 0;
         totalProcessedIncludes += redirectedRecord.processedIncludes || 0;
         
+        // Process includes from the redirected record as well
+        for (const mechanism of redirectedRecord.mechanisms) {
+          if (mechanism.type === 'include') {
+            const includeDomain = mechanism.value;
+            console.log(`📋 Processing include mechanism from redirected record: ${includeDomain}`);
+            
+            // Increment include counter for includes from redirected record
+            totalProcessedIncludes++;
+            
+            const includeRecord = await this.getSPFRecord(includeDomain, new Set([...visitedDomains]), false);
+            
+            if (includeRecord) {
+              // Add counts from included record
+              totalProcessedRedirects += includeRecord.processedRedirects || 0;
+              totalProcessedIncludes += includeRecord.processedIncludes || 0;
+              
+              // Add include to tracking list (from redirected record)
+              includes.push({
+                domain: includeDomain,
+                record: includeRecord.raw,
+                mechanisms: includeRecord.mechanisms,
+                modifiers: includeRecord.modifiers
+              });
+              
+              if (includeRecord.redirects) {
+                redirects.push(...includeRecord.redirects);
+                console.log(`📝 Added ${includeRecord.redirects.length} redirects from include in redirected record: ${includeDomain}`);
+              }
+            }
+          }
+        }
+        
         // Merge any redirects from the redirected record
         if (redirectedRecord.redirects) {
           redirects.push(...redirectedRecord.redirects);
@@ -484,7 +516,7 @@ export class SPFService {
       return {
         ...spfRecord,
         redirects: redirects.length > 0 ? redirects : undefined,
-        includes: includes.length > 0 ? includes : undefined,
+        includes: includes, // always an array
         processedRedirects: totalProcessedRedirects,
         processedIncludes: totalProcessedIncludes
       };
@@ -494,7 +526,7 @@ export class SPFService {
     const result = {
       ...spfRecord,
       redirects: redirects.length > 0 ? redirects : undefined,
-      includes: includes.length > 0 ? includes : undefined,
+      includes: includes, // always an array
       processedRedirects: totalProcessedRedirects,
       processedIncludes: totalProcessedIncludes
     };
