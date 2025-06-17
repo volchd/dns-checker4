@@ -143,4 +143,58 @@ export class ExampleController {
     // Return successful response
     return { status: 200, data: result };
   }
-} 
+}
+
+/**
+ * Example usage of SPFService with recursive processing counts
+ */
+async function exampleUsage() {
+  const spfService = new SPFService();
+  
+  // Example domains that might have redirects and includes
+  const testDomains = [
+    'google.com',
+    'microsoft.com', 
+    'github.com',
+    'example.com'
+  ];
+  
+  for (const domain of testDomains) {
+    console.log(`\n🔍 Testing domain: ${domain}`);
+    
+    try {
+      const result = await spfService.getSPFRecordForDomain(domain);
+      
+      if (spfService.isSuccessResponse(result)) {
+        console.log(`✅ Success for ${domain}:`);
+        console.log(`   📊 Summary:`);
+        console.log(`      - Total mechanisms: ${result.summary.totalMechanisms}`);
+        console.log(`      - Total modifiers: ${result.summary.totalModifiers}`);
+        console.log(`      - Redirect count: ${result.summary.redirectCount}`);
+        console.log(`      - Processed redirects: ${result.summary.processedRedirects}`);
+        console.log(`      - Processed includes: ${result.summary.processedIncludes}`);
+        console.log(`      - Has redirects: ${result.summary.hasRedirects}`);
+        
+        if (result.redirects && result.redirects.length > 0) {
+          console.log(`   🔄 Redirects:`);
+          result.redirects.forEach((redirect, index) => {
+            console.log(`      ${index + 1}. ${redirect.from} -> ${redirect.to}`);
+          });
+        }
+        
+        if (result.includes && result.includes.length > 0) {
+          console.log(`   📋 Includes:`);
+          result.includes.forEach((include, index) => {
+            console.log(`      ${index + 1}. ${include.domain} (${include.mechanisms.length} mechanisms)`);
+          });
+        }
+      } else {
+        console.log(`❌ Error for ${domain}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error(`💥 Exception for ${domain}:`, error);
+    }
+  }
+}
+
+export { exampleUsage }; 

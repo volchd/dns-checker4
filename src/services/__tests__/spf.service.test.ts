@@ -14,7 +14,7 @@ describe('SPFService', () => {
   describe('getSPFRecord', () => {
     it('should return parsed SPF record for valid domain', async () => {
       // Mock fetch response
-      vi.spyOn(window, 'fetch').mockResolvedValue({
+      const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
           Status: 0,
@@ -26,6 +26,7 @@ describe('SPFService', () => {
           }]
         })
       } as Response);
+      vi.stubGlobal('fetch', mockFetch);
 
       const result = await spfService.getSPFRecord(mockDomain);
 
@@ -50,20 +51,22 @@ describe('SPFService', () => {
     });
 
     it('should return null when no SPF record is found', async () => {
-      vi.spyOn(window, 'fetch').mockResolvedValue({
+      const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
           Status: 0,
           Answer: []
         })
       } as Response);
+      vi.stubGlobal('fetch', mockFetch);
 
       const result = await spfService.getSPFRecord(mockDomain);
       expect(result).toBeNull();
     });
 
     it('should return null when fetch fails', async () => {
-      vi.spyOn(window, 'fetch').mockRejectedValue(new Error('Network error'));
+      const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'));
+      vi.stubGlobal('fetch', mockFetch);
 
       const result = await spfService.getSPFRecord(mockDomain);
       expect(result).toBeNull();
@@ -71,7 +74,7 @@ describe('SPFService', () => {
 
     it('should handle SPF record with modifiers', async () => {
       const recordWithModifier = '"v=spf1 include:_spf.google.com redirect=_spf.example.com"';
-      vi.spyOn(window, 'fetch').mockResolvedValue({
+      const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
           Status: 0,
@@ -83,6 +86,7 @@ describe('SPFService', () => {
           }]
         })
       } as Response);
+      vi.stubGlobal('fetch', mockFetch);
 
       const result = await spfService.getSPFRecord(mockDomain);
 
@@ -93,6 +97,108 @@ describe('SPFService', () => {
         type: 'redirect',
         value: '_spf.example.com'
       });
+    });
+
+    it('should track recursive processing counts for redirects and includes', async () => {
+      // Mock the main domain response
+      const mockFetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            Status: 0,
+            Answer: [{
+              name: mockDomain,
+              type: 16,
+              TTL: 300,
+              data: '"v=spf1 include:_spf.google.com redirect=redirected.com"'
+            }]
+          })
+        } as Response)
+        // Mock the redirected domain response
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            Status: 0,
+            Answer: [{
+              name: 'redirected.com',
+              type: 16,
+              TTL: 300,
+              data: '"v=spf1 include:_spf.microsoft.com ~all"'
+            }]
+          })
+        } as Response)
+        // Mock the included domain response (from main domain)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            Status: 0,
+            Answer: [{
+              name: '_spf.google.com',
+              type: 16,
+              TTL: 300,
+              data: '"v=spf1 ip4:192.168.0.1 ~all"'
+            }]
+          })
+        } as Response)
+        // Mock the redirected domain's included domain response
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            Status: 0,
+            Answer: [{
+              name: '_spf.microsoft.com',
+              type: 16,
+              TTL: 300,
+              data: '"v=spf1 ip4:10.0.0.1 ~all"'
+            }]
+          })
+        } as Response);
+      vi.stubGlobal('fetch', mockFetch);
+
+      const result = await spfService.getSPFRecord(mockDomain);
+
+      expect(result).not.toBeNull();
+      expect(result?.processedRedirects).toBe(1); // One redirect from main domain
+      expect(result?.processedIncludes).toBe(2); // One include from main domain + one from redirected domain
+      expect(result?.redirects).toHaveLength(1);
+      expect(result?.includes).toHaveLength(1); // Only includes from the main domain are tracked
+    });
+  });
+
+  describe('getSPFRecordForDomain', () => {
+    it('should return formatted response with recursive processing counts', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          Status: 0,
+          Answer: [{
+            name: mockDomain,
+            type: 16,
+            TTL: 300,
+            data: '"v=spf1 ip4:192.168.0.1 ~all"'
+          }]
+        })
+      } as Response);
+      vi.stubGlobal('fetch', mockFetch);
+
+      const result = await spfService.getSPFRecordForDomain(mockDomain);
+
+      expect(spfService.isSuccessResponse(result)).toBe(true);
+      if (spfService.isSuccessResponse(result)) {
+        expect(result.summary.processedRedirects).toBe(0);
+        expect(result.summary.processedIncludes).toBe(0); // No includes in this record
+        expect(result.summary.totalMechanisms).toBe(2);
+        expect(result.summary.redirectCount).toBe(0);
+      }
+    });
+
+    it('should handle domain validation errors', async () => {
+      const result = await spfService.getSPFRecordForDomain('');
+
+      expect(spfService.isErrorResponse(result)).toBe(true);
+      if (spfService.isErrorResponse(result)) {
+        expect(result.error).toBe('Domain parameter is required');
+      }
     });
   });
 }); 
