@@ -42,6 +42,28 @@ describe('Base64Validator', () => {
       expect(Base64Validator.isValid({} as any)).toBe(false);
       expect(Base64Validator.isValid([] as any)).toBe(false);
     });
+
+    it('should handle Cloudflare Workers atob function correctly', () => {
+      // Test that the atob function (available in Cloudflare Workers) works correctly
+      const testStrings = [
+        'SGVsbG8gV29ybGQ=', // "Hello World"
+        'VGVzdCBzdHJpbmc=', // "Test string"
+        'QmFzZTY0IGVuY29kaW5n', // "Base64 encoding"
+        'T25lIHR3byB0aHJlZQ==', // "One two three"
+      ];
+
+      for (const str of testStrings) {
+        expect(Base64Validator.isValid(str)).toBe(true);
+      }
+    });
+
+    it('should handle various padding scenarios', () => {
+      // Test strings with different padding scenarios
+      expect(Base64Validator.isValid('SGVsbG8=')).toBe(true); // "Hello" (1 padding)
+      expect(Base64Validator.isValid('SGVsbG8g')).toBe(true); // "Hello " (no padding)
+      expect(Base64Validator.isValid('SGVsbG8gV29ybGQ=')).toBe(true); // "Hello World" (1 padding)
+      expect(Base64Validator.isValid('SGVsbG8gV29ybGQ')).toBe(true); // "Hello World" (no padding)
+    });
   });
 
   describe('isValidSilent', () => {
@@ -119,6 +141,22 @@ describe('Base64Validator', () => {
       expect(Base64Validator.isValidStrict(123 as any)).toBe(false);
       expect(Base64Validator.isValidStrict({} as any)).toBe(false);
       expect(Base64Validator.isValidStrict([] as any)).toBe(false);
+    });
+
+    it('should handle Cloudflare Workers environment correctly', () => {
+      // Test that the strict validation works correctly in Cloudflare Workers
+      // where atob is available globally
+      const testCases = [
+        { input: 'SGVsbG8gV29ybGQ=', expected: true }, // "Hello World"
+        { input: 'VGVzdCBzdHJpbmc=', expected: true }, // "Test string"
+        { input: 'SGVsbG8gV29ybGQ!', expected: false }, // Invalid character
+        { input: 'SGVsbG8gV29ybGQ=', expected: true }, // Valid with padding
+        { input: 'SGVsbG8gV29ybGQ===', expected: false }, // Too much padding
+      ];
+
+      for (const { input, expected } of testCases) {
+        expect(Base64Validator.isValidStrict(input)).toBe(expected);
+      }
     });
   });
 }); 
