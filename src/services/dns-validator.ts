@@ -84,9 +84,48 @@ export class DNSValidator {
     }
   }
 
+  async getTXTRecords(domain: string): Promise<string[]> {
+    try {
+      console.log('Fetching TXT records for domain:', domain);
+      
+      if (!this.isValidDomain(domain)) {
+        console.log('Invalid domain format:', domain);
+        throw new Error('Invalid domain format');
+      }
+
+      const url = `${this.dnsApiUrl}?name=${encodeURIComponent(domain)}&type=TXT`;
+      console.log('DNS query URL:', url);
+
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/dns-json',
+        },
+      });
+
+      if (!response.ok) {
+        console.error('DNS query failed:', response.status, response.statusText);
+        throw new Error(`DNS query failed: ${response.statusText}`);
+      }
+
+      const data = await response.json() as DNSResponse;
+      console.log('DNS response:', JSON.stringify(data, null, 2));
+      
+      // Extract TXT records and remove quotes
+      const records = (data.Answer || [])
+        .filter(record => record.type === 16) // TXT record type
+        .map(record => record.data.replace(/^"|"$/g, ''));
+      
+      console.log('Extracted TXT records:', records);
+      return records;
+    } catch (error) {
+      console.error('Error fetching TXT records:', error);
+      throw error; // Re-throw to let the controller handle it
+    }
+  }
+
   private isValidDomain(domain: string): boolean {
-    // Basic domain validation regex
-    const domainRegex = /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+    // More permissive domain validation regex that handles real-world domains
+    const domainRegex = /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]$/;
     return domainRegex.test(domain);
   }
 
