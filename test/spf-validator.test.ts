@@ -1,30 +1,47 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SPFValidator } from '../src/services/spf-validator';
-import { DNSValidator } from '../src/services/dns-validator';
-
-// Mock DNSValidator
-vi.mock('../src/services/dns-validator', () => {
-  return {
-    DNSValidator: vi.fn().mockImplementation(() => ({
-      getTXTRecords: vi.fn()
-    }))
-  };
-});
 
 describe('SPFValidator', () => {
   let validator: SPFValidator;
-  let mockDNSValidator: ReturnType<typeof vi.mocked<DNSValidator>>;
 
   beforeEach(() => {
     vi.resetAllMocks();
     validator = new SPFValidator();
-    mockDNSValidator = (validator as any).dnsValidator;
+    
+    // Set up mocks directly on the spfService instance
+    (validator as any).spfService.getSPFRecordForDomain = vi.fn();
+    (validator as any).spfService.isErrorResponse = vi.fn();
+    (validator as any).spfService.isSuccessResponse = vi.fn();
   });
 
   it('should validate a valid SPF record', async () => {
-    mockDNSValidator.getTXTRecords.mockResolvedValue([
-      'v=spf1 ip4:192.168.0.1 include:_spf.google.com ~all'
-    ]);
+    const mockSPFResponse = {
+      domain: 'example.com',
+      record: 'v=spf1 ip4:192.168.0.1 include:_spf.google.com ~all',
+      mechanisms: [
+        { type: 'ip4', value: '192.168.0.1', qualifier: '+' },
+        { type: 'include', value: '_spf.google.com', qualifier: '+' },
+        { type: 'all', value: '', qualifier: '~' }
+      ],
+      modifiers: [],
+      summary: {
+        totalMechanisms: 3,
+        totalModifiers: 0,
+        hasRedirects: false,
+        redirectCount: 0
+      },
+      hasRedirects: false,
+      finalDomain: 'example.com',
+      metadata: {
+        timestamp: new Date().toISOString(),
+        requestId: 'test',
+        processingTime: 100
+      }
+    };
+
+    (validator as any).spfService.getSPFRecordForDomain.mockResolvedValue(mockSPFResponse);
+    (validator as any).spfService.isErrorResponse.mockReturnValue(false);
+    (validator as any).spfService.isSuccessResponse.mockReturnValue(true);
 
     const result = await validator.validateSPF('example.com');
 
@@ -36,7 +53,15 @@ describe('SPFValidator', () => {
   });
 
   it('should detect missing SPF record', async () => {
-    mockDNSValidator.getTXTRecords.mockResolvedValue([]);
+    const mockErrorResponse = {
+      error: 'No SPF record found for the domain',
+      domain: 'example.com',
+      suggestion: 'Check if the domain has a valid SPF record in DNS'
+    };
+
+    (validator as any).spfService.getSPFRecordForDomain.mockResolvedValue(mockErrorResponse);
+    (validator as any).spfService.isErrorResponse.mockReturnValue(true);
+    (validator as any).spfService.isSuccessResponse.mockReturnValue(false);
 
     const result = await validator.validateSPF('example.com');
 
@@ -45,32 +70,38 @@ describe('SPFValidator', () => {
     expect(result.issues).toContainEqual(
       expect.objectContaining({
         type: 'error',
-        message: 'No SPF record found'
-      })
-    );
-  });
-
-  it('should detect multiple SPF records', async () => {
-    mockDNSValidator.getTXTRecords.mockResolvedValue([
-      'v=spf1 ip4:192.168.0.1 ~all',
-      'v=spf1 include:_spf.google.com ~all'
-    ]);
-
-    const result = await validator.validateSPF('example.com');
-
-    expect(result.isValid).toBe(false);
-    expect(result.issues).toContainEqual(
-      expect.objectContaining({
-        type: 'error',
-        message: 'Multiple SPF records found'
+        message: 'No SPF record found for the domain'
       })
     );
   });
 
   it('should detect missing all mechanism', async () => {
-    mockDNSValidator.getTXTRecords.mockResolvedValue([
-      'v=spf1 ip4:192.168.0.1 include:_spf.google.com'
-    ]);
+    const mockSPFResponse = {
+      domain: 'example.com',
+      record: 'v=spf1 ip4:192.168.0.1 include:_spf.google.com',
+      mechanisms: [
+        { type: 'ip4', value: '192.168.0.1', qualifier: '+' },
+        { type: 'include', value: '_spf.google.com', qualifier: '+' }
+      ],
+      modifiers: [],
+      summary: {
+        totalMechanisms: 2,
+        totalModifiers: 0,
+        hasRedirects: false,
+        redirectCount: 0
+      },
+      hasRedirects: false,
+      finalDomain: 'example.com',
+      metadata: {
+        timestamp: new Date().toISOString(),
+        requestId: 'test',
+        processingTime: 100
+      }
+    };
+
+    (validator as any).spfService.getSPFRecordForDomain.mockResolvedValue(mockSPFResponse);
+    (validator as any).spfService.isErrorResponse.mockReturnValue(false);
+    (validator as any).spfService.isSuccessResponse.mockReturnValue(true);
 
     const result = await validator.validateSPF('example.com');
 
@@ -84,9 +115,32 @@ describe('SPFValidator', () => {
   });
 
   it('should detect +all mechanism', async () => {
-    mockDNSValidator.getTXTRecords.mockResolvedValue([
-      'v=spf1 ip4:192.168.0.1 +all'
-    ]);
+    const mockSPFResponse = {
+      domain: 'example.com',
+      record: 'v=spf1 ip4:192.168.0.1 +all',
+      mechanisms: [
+        { type: 'ip4', value: '192.168.0.1', qualifier: '+' },
+        { type: 'all', value: '', qualifier: '+' }
+      ],
+      modifiers: [],
+      summary: {
+        totalMechanisms: 2,
+        totalModifiers: 0,
+        hasRedirects: false,
+        redirectCount: 0
+      },
+      hasRedirects: false,
+      finalDomain: 'example.com',
+      metadata: {
+        timestamp: new Date().toISOString(),
+        requestId: 'test',
+        processingTime: 100
+      }
+    };
+
+    (validator as any).spfService.getSPFRecordForDomain.mockResolvedValue(mockSPFResponse);
+    (validator as any).spfService.isErrorResponse.mockReturnValue(false);
+    (validator as any).spfService.isSuccessResponse.mockReturnValue(true);
 
     const result = await validator.validateSPF('example.com');
 
@@ -100,9 +154,32 @@ describe('SPFValidator', () => {
   });
 
   it('should detect deprecated mechanisms', async () => {
-    mockDNSValidator.getTXTRecords.mockResolvedValue([
-      'v=spf1 ptr:example.com ~all'
-    ]);
+    const mockSPFResponse = {
+      domain: 'example.com',
+      record: 'v=spf1 ptr:example.com ~all',
+      mechanisms: [
+        { type: 'ptr', value: 'example.com', qualifier: '+' },
+        { type: 'all', value: '', qualifier: '~' }
+      ],
+      modifiers: [],
+      summary: {
+        totalMechanisms: 2,
+        totalModifiers: 0,
+        hasRedirects: false,
+        redirectCount: 0
+      },
+      hasRedirects: false,
+      finalDomain: 'example.com',
+      metadata: {
+        timestamp: new Date().toISOString(),
+        requestId: 'test',
+        processingTime: 100
+      }
+    };
+
+    (validator as any).spfService.getSPFRecordForDomain.mockResolvedValue(mockSPFResponse);
+    (validator as any).spfService.isErrorResponse.mockReturnValue(false);
+    (validator as any).spfService.isSuccessResponse.mockReturnValue(true);
 
     const result = await validator.validateSPF('example.com');
 
@@ -116,9 +193,36 @@ describe('SPFValidator', () => {
   });
 
   it('should calculate lookup count correctly', async () => {
-    mockDNSValidator.getTXTRecords.mockResolvedValue([
-      'v=spf1 ip4:192.168.0.1 include:_spf.google.com include:_spf.microsoft.com a mx ~all'
-    ]);
+    const mockSPFResponse = {
+      domain: 'example.com',
+      record: 'v=spf1 ip4:192.168.0.1 include:_spf.google.com include:_spf.microsoft.com a mx ~all',
+      mechanisms: [
+        { type: 'ip4', value: '192.168.0.1', qualifier: '+' },
+        { type: 'include', value: '_spf.google.com', qualifier: '+' },
+        { type: 'include', value: '_spf.microsoft.com', qualifier: '+' },
+        { type: 'a', value: '', qualifier: '+' },
+        { type: 'mx', value: '', qualifier: '+' },
+        { type: 'all', value: '', qualifier: '~' }
+      ],
+      modifiers: [],
+      summary: {
+        totalMechanisms: 6,
+        totalModifiers: 0,
+        hasRedirects: false,
+        redirectCount: 0
+      },
+      hasRedirects: false,
+      finalDomain: 'example.com',
+      metadata: {
+        timestamp: new Date().toISOString(),
+        requestId: 'test',
+        processingTime: 100
+      }
+    };
+
+    (validator as any).spfService.getSPFRecordForDomain.mockResolvedValue(mockSPFResponse);
+    (validator as any).spfService.isErrorResponse.mockReturnValue(false);
+    (validator as any).spfService.isSuccessResponse.mockReturnValue(true);
 
     const result = await validator.validateSPF('example.com');
 
@@ -126,10 +230,38 @@ describe('SPFValidator', () => {
   });
 
   it('should detect excessive lookups', async () => {
-    const includes = Array(11).fill('include:_spf.example.com').join(' ');
-    mockDNSValidator.getTXTRecords.mockResolvedValue([
-      `v=spf1 ${includes} ~all`
-    ]);
+    const includes = Array(11).fill('include:_spf.example.com').map((include, index) => ({
+      type: 'include',
+      value: `_spf.example${index}.com`,
+      qualifier: '+'
+    }));
+    
+    const mockSPFResponse = {
+      domain: 'example.com',
+      record: `v=spf1 ${includes.map(i => `include:${i.value}`).join(' ')} ~all`,
+      mechanisms: [
+        ...includes,
+        { type: 'all', value: '', qualifier: '~' }
+      ],
+      modifiers: [],
+      summary: {
+        totalMechanisms: 12,
+        totalModifiers: 0,
+        hasRedirects: false,
+        redirectCount: 0
+      },
+      hasRedirects: false,
+      finalDomain: 'example.com',
+      metadata: {
+        timestamp: new Date().toISOString(),
+        requestId: 'test',
+        processingTime: 100
+      }
+    };
+
+    (validator as any).spfService.getSPFRecordForDomain.mockResolvedValue(mockSPFResponse);
+    (validator as any).spfService.isErrorResponse.mockReturnValue(false);
+    (validator as any).spfService.isSuccessResponse.mockReturnValue(true);
 
     const result = await validator.validateSPF('example.com');
 
@@ -144,36 +276,113 @@ describe('SPFValidator', () => {
 
   it('should score different all mechanisms appropriately', async () => {
     const testCases = [
-      { record: 'v=spf1 ip4:192.168.0.1 -all', expectedScore: 5 },
-      { record: 'v=spf1 ip4:192.168.0.1 ~all', expectedScore: 3 },
-      { record: 'v=spf1 ip4:192.168.0.1 ?all', expectedScore: 0 },
-      { record: 'v=spf1 ip4:192.168.0.1 +all', expectedScore: 0 }
+      { 
+        mechanisms: [
+          { type: 'ip4', value: '192.168.0.1', qualifier: '+' },
+          { type: 'all', value: '', qualifier: '-' }
+        ],
+        expectedScore: 5 
+      },
+      { 
+        mechanisms: [
+          { type: 'ip4', value: '192.168.0.1', qualifier: '+' },
+          { type: 'all', value: '', qualifier: '~' }
+        ],
+        expectedScore: 3 
+      },
+      { 
+        mechanisms: [
+          { type: 'ip4', value: '192.168.0.1', qualifier: '+' },
+          { type: 'all', value: '', qualifier: '?' }
+        ],
+        expectedScore: 0 
+      },
+      { 
+        mechanisms: [
+          { type: 'ip4', value: '192.168.0.1', qualifier: '+' },
+          { type: 'all', value: '', qualifier: '+' }
+        ],
+        expectedScore: 0 
+      }
     ];
 
-    for (const { record, expectedScore } of testCases) {
-      mockDNSValidator.getTXTRecords.mockResolvedValue([record]);
+    for (const { mechanisms, expectedScore } of testCases) {
+      const mockSPFResponse = {
+        domain: 'example.com',
+        record: `v=spf1 ip4:192.168.0.1 ${mechanisms[1].qualifier}all`,
+        mechanisms,
+        modifiers: [],
+        summary: {
+          totalMechanisms: 2,
+          totalModifiers: 0,
+          hasRedirects: false,
+          redirectCount: 0
+        },
+        hasRedirects: false,
+        finalDomain: 'example.com',
+        metadata: {
+          timestamp: new Date().toISOString(),
+          requestId: 'test',
+          processingTime: 100
+        }
+      };
+
+      (validator as any).spfService.getSPFRecordForDomain.mockResolvedValue(mockSPFResponse);
+      (validator as any).spfService.isErrorResponse.mockReturnValue(false);
+      (validator as any).spfService.isSuccessResponse.mockReturnValue(true);
+
       const result = await validator.validateSPF('example.com');
       expect(result.score).toBe(expectedScore);
     }
   });
 
   describe('redirect handling', () => {
-    it('should follow redirect mechanism and validate target domain', async () => {
-      // Mock original domain with redirect
-      mockDNSValidator.getTXTRecords.mockImplementation(async (domain) => {
-        if (domain === 'example.com') {
-          return ['v=spf1 redirect=redirected.com'];
+    it('should use redirected record for validation when redirects are present', async () => {
+      const mockSPFResponse = {
+        domain: 'example.com',
+        record: 'v=spf1 redirect=redirected.com',
+        mechanisms: [
+          { type: 'redirect', value: 'redirected.com', qualifier: '+' }
+        ],
+        modifiers: [],
+        summary: {
+          totalMechanisms: 1,
+          totalModifiers: 0,
+          hasRedirects: true,
+          redirectCount: 1,
+          hasRedirectedRecord: true,
+          redirectedMechanisms: 2,
+          redirectedModifiers: 0
+        },
+        hasRedirects: true,
+        finalDomain: 'redirected.com',
+        redirects: [
+          { from: 'example.com', to: 'redirected.com', record: 'v=spf1 redirect=redirected.com' }
+        ],
+        redirectedRecord: {
+          record: 'v=spf1 ip4:192.168.0.1 ~all',
+          mechanisms: [
+            { type: 'ip4', value: '192.168.0.1', qualifier: '+' },
+            { type: 'all', value: '', qualifier: '~' }
+          ],
+          modifiers: []
+        },
+        metadata: {
+          timestamp: new Date().toISOString(),
+          requestId: 'test',
+          processingTime: 100
         }
-        if (domain === 'redirected.com') {
-          return ['v=spf1 ip4:192.168.0.1 ~all'];
-        }
-        return [];
-      });
+      };
+
+      (validator as any).spfService.getSPFRecordForDomain.mockResolvedValue(mockSPFResponse);
+      (validator as any).spfService.isErrorResponse.mockReturnValue(false);
+      (validator as any).spfService.isSuccessResponse.mockReturnValue(true);
 
       const result = await validator.validateSPF('example.com');
 
       expect(result.isValid).toBe(true);
       expect(result.mechanisms).toHaveLength(2); // ip4 and all from redirected domain
+      expect(result.redirectRecord).toBe('v=spf1 ip4:192.168.0.1 ~all');
       expect(result.issues).toContainEqual(
         expect.objectContaining({
           type: 'info',
@@ -182,17 +391,16 @@ describe('SPFValidator', () => {
       );
     });
 
-    it('should handle redirect loops', async () => {
-      // Mock domains with circular redirect
-      mockDNSValidator.getTXTRecords.mockImplementation(async (domain) => {
-        if (domain === 'example.com') {
-          return ['v=spf1 redirect=redirected.com'];
-        }
-        if (domain === 'redirected.com') {
-          return ['v=spf1 redirect=example.com'];
-        }
-        return [];
-      });
+    it('should handle error responses from SPF service', async () => {
+      const mockErrorResponse = {
+        error: 'Failed to fetch SPF record',
+        domain: 'example.com',
+        details: 'Network error'
+      };
+
+      (validator as any).spfService.getSPFRecordForDomain.mockResolvedValue(mockErrorResponse);
+      (validator as any).spfService.isErrorResponse.mockReturnValue(true);
+      (validator as any).spfService.isSuccessResponse.mockReturnValue(false);
 
       const result = await validator.validateSPF('example.com');
 
@@ -200,170 +408,9 @@ describe('SPFValidator', () => {
       expect(result.issues).toContainEqual(
         expect.objectContaining({
           type: 'error',
-          message: 'Maximum redirect depth exceeded'
+          message: 'Failed to fetch SPF record'
         })
       );
-    });
-
-    it('should preserve redirect context in issues', async () => {
-      // Mock domains with issues in redirected domain
-      mockDNSValidator.getTXTRecords.mockImplementation(async (domain) => {
-        if (domain === 'example.com') {
-          return ['v=spf1 redirect=redirected.com'];
-        }
-        if (domain === 'redirected.com') {
-          return ['v=spf1 +all']; // Invalid SPF record
-        }
-        return [];
-      });
-
-      const result = await validator.validateSPF('example.com');
-
-      expect(result.isValid).toBe(false);
-      expect(result.issues).toContainEqual(
-        expect.objectContaining({
-          type: 'error',
-          message: expect.stringContaining('Redirect (redirected.com): Using +all mechanism')
-        })
-      );
-    });
-
-    it('should handle missing redirect target', async () => {
-      mockDNSValidator.getTXTRecords.mockImplementation(async (domain) => {
-        if (domain === 'example.com') {
-          return ['v=spf1 redirect=nonexistent.com'];
-        }
-        return [];
-      });
-
-      const result = await validator.validateSPF('example.com');
-
-      expect(result.isValid).toBe(false);
-      expect(result.issues).toContainEqual(
-        expect.objectContaining({
-          type: 'error',
-          message: expect.stringContaining('Redirect (nonexistent.com): No SPF record found')
-        })
-      );
-    });
-
-    it('should handle redirect with multiple records in target', async () => {
-      mockDNSValidator.getTXTRecords.mockImplementation(async (domain) => {
-        if (domain === 'example.com') {
-          return ['v=spf1 redirect=redirected.com'];
-        }
-        if (domain === 'redirected.com') {
-          return [
-            'v=spf1 ip4:192.168.0.1 ~all',
-            'v=spf1 include:_spf.google.com ~all'
-          ];
-        }
-        return [];
-      });
-
-      const result = await validator.validateSPF('example.com');
-
-      expect(result.isValid).toBe(false);
-      expect(result.issues).toContainEqual(
-        expect.objectContaining({
-          type: 'error',
-          message: expect.stringContaining('Redirect (redirected.com): Multiple SPF records found')
-        })
-      );
-    });
-
-    it('should track the complete chain of redirects', async () => {
-      // Mock domains with a chain of redirects
-      mockDNSValidator.getTXTRecords.mockImplementation(async (domain) => {
-        if (domain === 'example.com') {
-          return ['v=spf1 redirect=redirect1.com'];
-        }
-        if (domain === 'redirect1.com') {
-          return ['v=spf1 redirect=redirect2.com'];
-        }
-        if (domain === 'redirect2.com') {
-          return ['v=spf1 ip4:192.168.0.1 ~all'];
-        }
-        return [];
-      });
-
-      const result = await validator.validateSPF('example.com');
-
-      expect(result.redirects).toHaveLength(2);
-      expect(result.redirects).toEqual([
-        {
-          from: 'example.com',
-          to: 'redirect1.com',
-          record: 'v=spf1 redirect=redirect1.com'
-        },
-        {
-          from: 'redirect1.com',
-          to: 'redirect2.com',
-          record: 'v=spf1 redirect=redirect2.com'
-        }
-      ]);
-      expect(result.details.finalDomain).toBe('redirect2.com');
-    });
-
-    it('should include redirect chain in the response even when validation fails', async () => {
-      // Mock domains with a redirect to an invalid record
-      mockDNSValidator.getTXTRecords.mockImplementation(async (domain) => {
-        if (domain === 'example.com') {
-          return ['v=spf1 redirect=invalid.com'];
-        }
-        if (domain === 'invalid.com') {
-          return ['v=spf1 +all']; // Invalid SPF record
-        }
-        return [];
-      });
-
-      const result = await validator.validateSPF('example.com');
-
-      expect(result.isValid).toBe(false);
-      expect(result.redirects).toHaveLength(1);
-      expect(result.redirects[0]).toEqual({
-        from: 'example.com',
-        to: 'invalid.com',
-        record: 'v=spf1 redirect=invalid.com'
-      });
-      expect(result.details.finalDomain).toBe('invalid.com');
-    });
-
-    it('should track redirects even when max depth is exceeded', async () => {
-      // Mock domains with too many redirects
-      mockDNSValidator.getTXTRecords.mockImplementation(async (domain) => {
-        if (domain === 'example.com') {
-          return ['v=spf1 redirect=redirect1.com'];
-        }
-        if (domain === 'redirect1.com') {
-          return ['v=spf1 redirect=redirect2.com'];
-        }
-        if (domain === 'redirect2.com') {
-          return ['v=spf1 redirect=redirect3.com'];
-        }
-        if (domain === 'redirect3.com') {
-          return ['v=spf1 ip4:192.168.0.1 ~all'];
-        }
-        return [];
-      });
-
-      const result = await validator.validateSPF('example.com');
-
-      expect(result.isValid).toBe(false);
-      expect(result.redirects).toHaveLength(2); // Should track up to max depth
-      expect(result.redirects).toEqual([
-        {
-          from: 'example.com',
-          to: 'redirect1.com',
-          record: 'v=spf1 redirect=redirect1.com'
-        },
-        {
-          from: 'redirect1.com',
-          to: 'redirect2.com',
-          record: 'v=spf1 redirect=redirect2.com'
-        }
-      ]);
-      expect(result.details.finalDomain).toBe('redirect2.com');
     });
   });
 }); 

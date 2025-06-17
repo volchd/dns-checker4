@@ -16,7 +16,7 @@ export type SPFValidationResult = {
   isValid: boolean;
   score: number;
   record: string;
-  redirectRecord?: string;
+  redirectRecord: string;
   issues: SPFIssue[];
   recommendations: string[];
   mechanisms: SPFMechanism[];

@@ -1,4 +1,4 @@
-import { DNSValidator } from './dns-validator';
+import { SPFService, SPFResponse, SPFErrorResponse } from './spf.service';
 import { 
   SPFValidationResult, 
   SPFMechanism, 
@@ -9,76 +9,45 @@ import {
 } from '../types/spf.types';
 
 export class SPFValidator {
-  private dnsValidator: DNSValidator;
+  private spfService: SPFService;
   private readonly MAX_LOOKUPS = 10;
   private readonly DEPRECATED_MECHANISMS = ['ptr'];
   private readonly VALID_MECHANISMS = ['ip4', 'ip6', 'a', 'mx', 'include', 'exists', 'redirect', 'all'];
   private readonly MAX_REDIRECT_DEPTH = 2; // Prevent redirect loops
 
   constructor() {
-    this.dnsValidator = new DNSValidator();
+    this.spfService = new SPFService();
   }
 
-  async validateSPF(
-    domain: string, 
-    redirectDepth: number = 0,
-    redirects: SPFRedirect[] = []
-  ): Promise<SPFValidationResult> {
-    console.log(`Validating SPF for domain: ${domain} (redirect depth: ${redirectDepth})`);
-
-    if (redirectDepth > this.MAX_REDIRECT_DEPTH) {
-      console.log(`Maximum redirect depth (${this.MAX_REDIRECT_DEPTH}) exceeded for domain: ${domain}`);
-      return this.createValidationResult(
-        domain,
-        '',
-        [],
-        [{
-          type: 'error',
-          message: 'Maximum redirect depth exceeded',
-          recommendation: 'Check for redirect loops in SPF records'
-        }],
-        [],
-        0,
-        {
-          recordPresent: 0,
-          singleRecord: 0,
-          syntaxValid: 0,
-          lookupLimit: 0,
-          noPassAll: 0,
-          allMechanismPolicy: 0,
-          noDeprecatedMechanisms: 0,
-          total: 0
-        },
-        redirects,
-        domain
-      );
-    }
+  async validateSPF(domain: string): Promise<SPFValidationResult> {
+    console.log(`Validating SPF for domain: ${domain}`);
 
     const issues: SPFIssue[] = [];
     const recommendations: string[] = [];
     let mechanisms: SPFMechanism[] = [];
     let lookupCount = 0;
     let record = '';
+    let redirectRecord = '';
+    let redirects: SPFRedirect[] = [];
+    let finalDomain = domain;
 
-    // Get TXT records
-    const txtRecords = await this.dnsValidator.getTXTRecords(domain);
-    const spfRecords = txtRecords.filter(record => record.startsWith('v=spf1'));
-    console.log(`Found ${spfRecords.length} SPF records for domain: ${domain}`);
-
-    // Check for SPF record presence
-    if (spfRecords.length === 0) {
-      console.log(`No SPF record found for domain: ${domain}`);
+    // Get SPF record using SPF service
+    const spfResult = await this.spfService.getSPFRecordForDomain(domain);
+    
+    if (this.spfService.isErrorResponse(spfResult)) {
+      console.log(`Error getting SPF record for domain: ${domain}: ${spfResult.error}`);
       issues.push({
         type: 'error',
-        message: 'No SPF record found',
-        recommendation: 'Create an SPF record starting with v=spf1'
+        message: spfResult.error,
+        recommendation: spfResult.suggestion || 'Check if the domain has a valid SPF record in DNS'
       });
+      
       return this.createValidationResult(
-        domain, 
-        '', 
-        [], 
-        issues, 
-        recommendations, 
+        domain,
+        '',
+        [],
+        issues,
+        recommendations,
         0,
         {
           recordPresent: 0,
@@ -91,112 +60,49 @@ export class SPFValidator {
           total: 0
         },
         redirects,
-        domain
+        finalDomain
       );
     }
 
-    // Check for multiple SPF records
-    if (spfRecords.length > 1) {
-      console.log(`Multiple SPF records found for domain: ${domain}`);
+    const spfResponse = spfResult as SPFResponse;
+    console.log(`Successfully retrieved SPF record for domain: ${domain}`);
+
+    // Handle redirects if present
+    if (spfResponse.hasRedirects && spfResponse.redirectedRecord) {
+      console.log(`SPF record has redirects, using redirected record for validation`);
+      
+      // Use the redirected record for validation
+      record = spfResponse.record; // Original record
+      redirectRecord = spfResponse.redirectedRecord.record; // Final redirected record
+      mechanisms = this.convertSPFServiceMechanisms(spfResponse.redirectedRecord.mechanisms);
+      redirects = spfResponse.redirects || [];
+      finalDomain = spfResponse.finalDomain || domain;
+      
+      // Add info about redirects
       issues.push({
-        type: 'error',
-        message: 'Multiple SPF records found',
-        recommendation: 'Merge all SPF records into a single record'
+        type: 'info',
+        message: `SPF record redirects to ${finalDomain}`,
+        recommendation: 'Ensure the redirect target is properly maintained'
       });
+      
+      console.log(`Using redirected record from ${finalDomain}: ${redirectRecord}`);
+    } else {
+      // Use the original record for validation
+      record = spfResponse.record;
+      mechanisms = this.convertSPFServiceMechanisms(spfResponse.mechanisms);
+      redirects = spfResponse.redirects || [];
+      finalDomain = spfResponse.finalDomain || domain;
+      
+      console.log(`Using original record: ${record}`);
     }
 
-    record = spfRecords[0];
-    console.log(`Processing SPF record: ${record}`);
-    mechanisms = this.parseMechanisms(record);
     console.log(`Parsed mechanisms:`, mechanisms);
 
-    // Check for redirect mechanism
-    const redirectMechanism = mechanisms.find(m => m.type === 'redirect');
-    if (redirectMechanism && redirectMechanism.value) {
-      const redirectDomain = redirectMechanism.value;
-      console.log(`Found redirect to: ${redirectDomain}`);
-      
-      // Add this redirect to the chain
-      const currentRedirect: SPFRedirect = {
-        from: domain,
-        to: redirectDomain,
-        record: record
-      };
-      const updatedRedirects = [...redirects, currentRedirect];
-      console.log(`Updated redirect chain:`, updatedRedirects);
-
-      try {
-        // Add a note about the redirect
-        issues.push({
-          type: 'info',
-          message: `SPF record redirects to ${redirectDomain}`,
-          recommendation: 'Ensure the redirect target is properly maintained'
-        });
-
-        console.log(`Following redirect to: ${redirectDomain}`);
-        // Validate the redirect domain
-        const redirectResult = await this.validateSPF(
-          redirectDomain, 
-          redirectDepth + 1,
-          updatedRedirects
-        );
-        console.log(`Redirect validation result for ${redirectDomain}:`, redirectResult);
-        
-        // Merge issues and recommendations
-        issues.push(...redirectResult.issues.map(issue => ({
-          ...issue,
-          message: `Redirect (${redirectDomain}): ${issue.message}`
-        })));
-        recommendations.push(...redirectResult.recommendations);
-        
-        // Use the redirected domain's mechanisms and lookup count
-        mechanisms = redirectResult.mechanisms;
-        lookupCount = redirectResult.lookupCount;
-        
-        // Calculate score for the final result
-        const score = this.calculateScore(mechanisms, issues, lookupCount);
-        console.log(`Calculated score for ${domain} after redirect:`, score);
-        console.log(`Original record: ${record}`);
-        console.log(`Redirect record: ${redirectResult.record}`);
-
-        // Return the redirect result with the updated redirect chain
-        const result = {
-          isValid: redirectResult.isValid,
-          score: score.total,
-          record: record,
-          redirectRecord: redirectResult.record,
-          issues,
-          recommendations,
-          mechanisms,
-          lookupCount,
-          redirects: updatedRedirects,
-          details: {
-            ...redirectResult.details,
-            finalDomain: redirectDomain
-          }
-        };
-        console.log(`Returning final result for ${domain}:`, result);
-        return result;
-      } catch (error) {
-        console.error(`Error validating redirect to ${redirectDomain}:`, error);
-        // If redirect validation fails, add it as an issue
-        issues.push({
-          type: 'error',
-          message: `Failed to validate redirect to ${redirectDomain}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          recommendation: 'Check if the redirect target domain is accessible and has a valid SPF record'
-        });
-        // Continue with the current domain's validation
-      }
-    }
-
-    // If no redirect or redirect failed, validate current mechanisms
-    console.log(`No redirect found or redirect failed, validating current mechanisms for ${domain}`);
+    // Calculate lookup count
     lookupCount = this.calculateLookupCount(mechanisms);
 
-    // Validate mechanisms (excluding redirect as it's already handled)
-    const mechanismIssues = this.validateMechanisms(
-      mechanisms.filter(m => m.type !== 'redirect')
-    );
+    // Validate mechanisms
+    const mechanismIssues = this.validateMechanisms(mechanisms);
     issues.push(...mechanismIssues);
 
     // Generate recommendations
@@ -215,52 +121,22 @@ export class SPFValidator {
       lookupCount,
       score,
       redirects,
-      domain
+      finalDomain,
+      redirectRecord
     );
     console.log(`Returning result for ${domain}:`, result);
     return result;
   }
 
-  private parseMechanisms(record: string): SPFMechanism[] {
-    const mechanisms: SPFMechanism[] = [];
-    const parts = record.split(' ');
-
-    // Skip the version part
-    for (let i = 1; i < parts.length; i++) {
-      const part = parts[i];
-      const qualifier = this.getQualifier(part);
-      const cleanPart = part.replace(/^[+\-~?]/, '');
-      
-      let type: string;
-      let value: string | undefined;
-      
-      // Handle both colon and equals sign separators
-      if (cleanPart.includes('=')) {
-        [type, value] = cleanPart.split('=');
-      } else if (cleanPart.includes(':')) {
-        [type, value] = cleanPart.split(':');
-      } else {
-        type = cleanPart;
-        value = undefined;
-      }
-      
-      if (this.VALID_MECHANISMS.includes(type)) {
-        mechanisms.push({
-          type,
-          value,
-          qualifier
-        });
-      }
-    }
-
-    return mechanisms;
-  }
-
-  private getQualifier(mechanism: string): SPFQualifier {
-    if (mechanism.startsWith('-')) return '-';
-    if (mechanism.startsWith('~')) return '~';
-    if (mechanism.startsWith('?')) return '?';
-    return '+';
+  /**
+   * Convert SPF service mechanism format to validator mechanism format
+   */
+  private convertSPFServiceMechanisms(serviceMechanisms: any[]): SPFMechanism[] {
+    return serviceMechanisms.map(mech => ({
+      type: mech.type,
+      value: mech.value,
+      qualifier: mech.qualifier || '+' as SPFQualifier
+    }));
   }
 
   private validateMechanisms(mechanisms: SPFMechanism[]): SPFIssue[] {
@@ -401,7 +277,8 @@ export class SPFValidator {
     lookupCount: number,
     score?: SPFScoreBreakdown,
     redirects: SPFRedirect[] = [],
-    finalDomain: string = domain
+    finalDomain: string = domain,
+    redirectRecord: string = ''
   ): SPFValidationResult {
     const allMechanism = mechanisms.find(m => m.type === 'all');
     
@@ -409,7 +286,7 @@ export class SPFValidator {
       isValid: issues.filter(i => i.type === 'error').length === 0,
       score: score?.total ?? 0,
       record,
-      redirectRecord: '',
+      redirectRecord,
       issues,
       recommendations,
       mechanisms,
