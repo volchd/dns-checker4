@@ -88,8 +88,9 @@ export class DMARCValidator {
           dmarcImplemented: 0,
           validPolicy: 0,
           subdomainPolicy: 0,
-          percentage: 0,
+          alignmentMode: 0,
           reports: 0,
+          percentage: 0,
           total: 0
         },
         finalDomain
@@ -130,7 +131,7 @@ export class DMARCValidator {
 
     // Step 7: Calculate security score
     const score = this.calculateScore(parsedRecord, issues);
-    console.log(`[DMARC Validator] Calculated security score: ${score.total}/22`, score);
+    console.log(`[DMARC Validator] Calculated security score: ${score.total}/29`, score);
 
     const result = this.createValidationResult(
       domain,
@@ -338,8 +339,9 @@ export class DMARCValidator {
     let dmarcImplemented = 0;
     let validPolicy = 0;
     let subdomainPolicy = 0;
-    let percentage = 0;
+    let alignmentMode = 0;
     let reports = 0;
+    let percentage = 0;
 
     // DMARC Implementation (10 points - all or nothing)
     const hasCriticalErrors = issues.some(issue => issue.type === 'error' && 
@@ -350,25 +352,47 @@ export class DMARCValidator {
       dmarcImplemented = 10;
     }
 
-    // Valid Policy (5 points)
+    // Valid Policy (10 points)
     if (parsedRecord.policy === 'reject') {
-      validPolicy = 5;
+      validPolicy = 10; // Full enforcement
     } else if (parsedRecord.policy === 'quarantine') {
-      validPolicy = 3;
+      validPolicy = 8;  // Partial enforcement
     } else if (parsedRecord.policy === 'none') {
-      validPolicy = 1;
+      validPolicy = 3;  // Monitor only, no protection
     }
 
     // Subdomain Policy (3 points)
-    if (parsedRecord.subdomainPolicy && parsedRecord.subdomainPolicy !== 'none') {
+    // Give points if subdomain policy is set (and not weaker than main policy) 
+    // OR if no significant subdomains exist (common case)
+    if (parsedRecord.subdomainPolicy) {
+      if (parsedRecord.subdomainPolicy === 'none') {
+        // Explicitly set to none - no points (subdomains are unprotected)
+        subdomainPolicy = 0;
+      } else {
+        // Check if subdomain policy is not weaker than main policy
+        const policyStrength = { 'none': 0, 'quarantine': 1, 'reject': 2 };
+        const mainPolicyStrength = policyStrength[parsedRecord.policy as keyof typeof policyStrength] || 0;
+        const subPolicyStrength = policyStrength[parsedRecord.subdomainPolicy as keyof typeof policyStrength] || 0;
+        
+        if (subPolicyStrength >= mainPolicyStrength) {
+          subdomainPolicy = 3;
+        }
+      }
+    } else {
+      // No subdomain policy specified - assume no significant subdomains exist
+      // This is the common case for most domains and should get full points
       subdomainPolicy = 3;
     }
 
-    // Percentage (2 points)
-    if (parsedRecord.percentage === 100 || parsedRecord.policy === 'none') {
-      percentage = 2;
-    } else if (parsedRecord.percentage && parsedRecord.percentage >= 50) {
-      percentage = 1;
+    // Alignment Mode (2 points)
+    // Give points if alignment is left at default (relaxed) or set to strict consistently
+    const hasAdkim = parsedRecord.adkim !== undefined;
+    const hasAspf = parsedRecord.aspf !== undefined;
+    const adkimValid = !hasAdkim || this.VALID_ALIGNMENT_MODES.includes(parsedRecord.adkim!);
+    const aspfValid = !hasAspf || this.VALID_ALIGNMENT_MODES.includes(parsedRecord.aspf!);
+    
+    if (adkimValid && aspfValid) {
+      alignmentMode = 2;
     }
 
     // Reports (2 points)
@@ -376,14 +400,33 @@ export class DMARCValidator {
       reports = 2;
     }
 
-    const total = dmarcImplemented + validPolicy + subdomainPolicy + percentage + reports;
+    // Percentage (2 points)
+    if (parsedRecord.policy === 'none') {
+      // Not applicable for none policy - no points
+      percentage = 0;
+    } else if (parsedRecord.percentage === 100) {
+      // Full coverage
+      percentage = 2;
+    } else if (parsedRecord.percentage && parsedRecord.percentage >= 50) {
+      // Partial coverage (50-99%)
+      percentage = 1;
+    } else if (parsedRecord.percentage && parsedRecord.percentage < 50) {
+      // Very low coverage
+      percentage = 0;
+    } else {
+      // No percentage specified, default to 100%
+      percentage = 2;
+    }
+
+    const total = dmarcImplemented + validPolicy + subdomainPolicy + alignmentMode + reports + percentage;
 
     return {
       dmarcImplemented,
       validPolicy,
       subdomainPolicy,
-      percentage,
+      alignmentMode,
       reports,
+      percentage,
       total
     };
   }

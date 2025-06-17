@@ -49,9 +49,10 @@ export type DMARCIssue = {
 
 export type DMARCScoreBreakdown = {
   dmarcImplemented: number;     // 10 points (all or nothing)
-  validPolicy: number;          // 5 points (reject = 5, quarantine = 3, none = 1)
+  validPolicy: number;          // 10 points (reject = 10, quarantine = 8, none = 3)
   subdomainPolicy: number;      // 3 points (if present and valid)
-  percentage: number;           // 2 points (if 100%; 1 point if <100%)
+  alignmentMode: number;        // 2 points (for sensible alignment setting)
   reports: number;              // 2 points (if present)
-  total: number;                // Total score (max 22)
+  percentage: number;           // 2 points (if 100% or n/a; 1 if 50-99%; 0 if very low)
+  total: number;                // Total score (max 29)
 }; 
