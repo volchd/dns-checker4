@@ -275,7 +275,9 @@ export class SPFService {
       );
 
       if (spfRecord) {
-        const cleanRecord = spfRecord.data.replace(/^"|"$/g, '');
+        // Clean up SPF record: remove embedded \" \" and any remaining double quotes
+        let cleanRecord = spfRecord.data.replace(/"\s+"/g, '');
+        cleanRecord = cleanRecord.replace(/"/g, '');
         console.log(`✅ Found SPF record for ${domain}: ${cleanRecord}`);
         return cleanRecord;
       } else {
