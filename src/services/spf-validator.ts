@@ -38,6 +38,15 @@ export class SPFValidator {
   private readonly VALID_MECHANISMS = ['ip4', 'ip6', 'a', 'mx', 'include', 'exists', 'redirect', 'all'];
   private readonly MAX_REDIRECT_DEPTH = 2; // Prevent redirect loops
 
+  private readonly POINTS_RECORD_PRESENT = 10;
+  private readonly POINTS_SINGLE_RECORD = 5;
+  private readonly POINTS_SYNTAX_VALID = 5;
+  private readonly POINTS_LOOKUP_LIMIT = 5;
+  private readonly POINTS_NO_PASS_ALL = 5;
+  private readonly POINTS_ALL_MECHANISM_POLICY_HARD_FAIL = 5;
+  private readonly POINTS_ALL_MECHANISM_POLICY_SOFT_FAIL = 3;
+  private readonly POINTS_NO_DEPRECATED_MECHANISMS = 2;
+
   constructor() {
     this.spfService = new SPFService();
     console.log('[SPF Validator] Initialized with validation limits:', {
@@ -70,6 +79,7 @@ export class SPFValidator {
     let finalDomain = domain;
     let processedRedirects = 0;
     let processedIncludes = 0;
+    let spfRecordCount = 0;
 
     // Step 1: Retrieve SPF record using SPF service
     console.log(`[SPF Validator] Retrieving SPF record for domain: ${domain}`);
@@ -132,6 +142,7 @@ export class SPFValidator {
       mechanisms = this.convertSPFServiceMechanisms(spfResponse.redirectedRecord.mechanisms);
       redirects = spfResponse.redirects || [];
       finalDomain = spfResponse.finalDomain || domain;
+      spfRecordCount = spfResponse.summary.spfRecordCount;
       
       // Add info about redirects
       issues.push({
@@ -176,7 +187,7 @@ export class SPFValidator {
     recommendations.push(...this.generateRecommendations(mechanisms, issues, lookupCount));
 
     // Step 7: Calculate security score
-    const score = this.calculateScore(mechanisms, issues, lookupCount);
+    const score = this.calculateScore(mechanisms, issues, lookupCount, spfRecordCount);
     console.log(`[SPF Validator] Calculated security score: ${score.total}/20`, score);
 
     const result = this.createValidationResult(
@@ -343,7 +354,8 @@ export class SPFValidator {
   private calculateScore(
     mechanisms: SPFMechanism[],
     issues: SPFIssue[],
-    lookupCount: number
+    lookupCount: number,
+    spfRecordCount: number
   ): SPFScoreBreakdown {
     console.log('[SPF Validator] Calculating security score...');
     
@@ -355,63 +367,73 @@ export class SPFValidator {
     let allMechanismPolicy = 0;
     let noDeprecatedMechanisms = 0;
 
-    // Record Present: 5 points (all or nothing)
+    // Record Present
     if (mechanisms.length > 0) {
-      recordPresent = 5;
-      console.log('[SPF Validator] ✓ SPF record present: 5 points');
+      recordPresent = this.POINTS_RECORD_PRESENT;
+      console.log(`[SPF Validator] ✓ SPF record present: ${this.POINTS_RECORD_PRESENT} points`);
     } else {
       console.log('[SPF Validator] ✗ No SPF record: 0 points');
     }
 
-    // Single Record: 2 points (if no redirects)
-    const hasRedirects = issues.some(issue => issue.message.includes('redirects'));
-    if (!hasRedirects) {
-      singleRecord = 2;
-      console.log('[SPF Validator] ✓ Single SPF record: 2 points');
+    // Single Record (if no redirects)
+  
+    if (spfRecordCount === 1) {
+      singleRecord = this.POINTS_SINGLE_RECORD;
+      console.log(`[SPF Validator] ✓ Single SPF record: ${this.POINTS_SINGLE_RECORD} points`);
     } else {
       console.log('[SPF Validator] ~ Multiple records (redirects): 0 points');
     }
 
-    // Syntax Valid: 3 points (if no syntax errors)
+    // Syntax Valid (if no syntax errors)
     const hasSyntaxErrors = issues.some(issue => issue.type === 'error' && issue.message.includes('syntax'));
     if (!hasSyntaxErrors) {
-      syntaxValid = 3;
-      console.log('[SPF Validator] ✓ Valid syntax: 3 points');
+      syntaxValid = this.POINTS_SYNTAX_VALID;
+      console.log(`[SPF Validator] ✓ Valid syntax: ${this.POINTS_SYNTAX_VALID} points`);
     } else {
       console.log('[SPF Validator] ✗ Syntax errors: 0 points');
     }
 
-    // Lookup Limit: 3 points (if within 10 lookups)
+    // Lookup Limit:  (if within 10 lookups)
     if (lookupCount <= this.MAX_LOOKUPS) {
-      lookupLimit = 3;
-      console.log(`[SPF Validator] ✓ Lookup count within limits (${lookupCount}/${this.MAX_LOOKUPS}): 3 points`);
+      lookupLimit = this.POINTS_LOOKUP_LIMIT;
+      console.log(`[SPF Validator] ✓ Lookup count within limits (${lookupCount}/${this.MAX_LOOKUPS}): ${this.POINTS_LOOKUP_LIMIT} points`);
     } else {
       console.log(`[SPF Validator] ✗ Lookup count exceeded (${lookupCount}/${this.MAX_LOOKUPS}): 0 points`);
     }
 
-    // No Pass All: 3 points (if not using +all)
+    // No Pass All(if not using +all)
+    // TODO: incorrect logic
     const hasPassAll = mechanisms.some(m => m.type === 'all' && m.qualifier === '+');
     if (!hasPassAll) {
-      noPassAll = 3;
-      console.log('[SPF Validator] ✓ No +all mechanism: 3 points');
+      noPassAll = this.POINTS_NO_PASS_ALL;
+      console.log(`[SPF Validator] ✓ No +all mechanism: ${this.POINTS_NO_PASS_ALL} points`);
     } else {
       console.log('[SPF Validator] ✗ Using +all mechanism: 0 points');
     }
 
-    // All Mechanism Policy: 2 points (if using ~all or -all)
+    // All Mechanism Policy (if using ~all or -all)
     const allMechanism = mechanisms.find(m => m.type === 'all');
-    if (allMechanism && (allMechanism.qualifier === '~' || allMechanism.qualifier === '-')) {
-      allMechanismPolicy = 2;
-      console.log(`[SPF Validator] ✓ Secure all mechanism policy (${allMechanism.qualifier}all): 2 points`);
+    if (allMechanism) {
+      if (allMechanism.qualifier === '-') {
+        allMechanismPolicy = this.POINTS_ALL_MECHANISM_POLICY_HARD_FAIL;
+        console.log(`[SPF Validator] ✓ Secure all mechanism policy (-all): ${this.POINTS_ALL_MECHANISM_POLICY_HARD_FAIL} points`);
+      } else if (allMechanism.qualifier === '~') {
+        allMechanismPolicy = this.POINTS_ALL_MECHANISM_POLICY_SOFT_FAIL;
+        console.log(`[SPF Validator] ✓ Soft fail all mechanism policy (~all): ${this.POINTS_ALL_MECHANISM_POLICY_SOFT_FAIL} points`);
+      } else {
+        allMechanismPolicy = 0;
+        console.log('[SPF Validator] ~ Insecure or missing all mechanism policy: 0 points');
+      }
     } else {
+      allMechanismPolicy = 0;
       console.log('[SPF Validator] ~ Insecure or missing all mechanism policy: 0 points');
     }
 
     // No Deprecated Mechanisms: 2 points (if no deprecated mechanisms)
     const hasDeprecated = mechanisms.some(m => this.DEPRECATED_MECHANISMS.includes(m.type));
     if (!hasDeprecated) {
-      noDeprecatedMechanisms = 2;
-      console.log('[SPF Validator] ✓ No deprecated mechanisms: 2 points');
+      noDeprecatedMechanisms = this.POINTS_NO_DEPRECATED_MECHANISMS;
+      console.log(`[SPF Validator] ✓ No deprecated mechanisms: ${this.POINTS_NO_DEPRECATED_MECHANISMS} points`);
     } else {
       console.log('[SPF Validator] ✗ Deprecated mechanisms found: 0 points');
     }

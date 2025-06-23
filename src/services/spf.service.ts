@@ -72,6 +72,10 @@ export interface SPFResponse {
     redirectedModifiers?: number;
     processedRedirects: number;
     processedIncludes: number;
+    /**
+     * The number of SPF records found in the DNS response (should be 1 for valid domains, >1 is a misconfiguration)
+     */
+    spfRecordCount: number;
   };
   redirects?: SPFRedirect[];
   includes?: SPFRecord['includes'];
@@ -156,7 +160,7 @@ export class SPFService {
    * @param spfRecord - The SPF record data
    * @returns Formatted response object
    */
-  formatSPFResponse(domain: string, spfRecord: SPFRecord): SPFResponse {
+  formatSPFResponse(domain: string, spfRecord: SPFRecord & { spfRecordCount?: number }): SPFResponse {
     const startTime = Date.now();
     
     // Prepare base response
@@ -171,7 +175,8 @@ export class SPFService {
         hasRedirects: false,
         redirectCount: 0,
         processedRedirects: spfRecord.processedRedirects || 0,
-        processedIncludes: spfRecord.processedIncludes || 0
+        processedIncludes: spfRecord.processedIncludes || 0,
+        spfRecordCount: spfRecord.spfRecordCount || 0
       },
       metadata: {
         timestamp: new Date().toISOString(),
@@ -249,9 +254,9 @@ export class SPFService {
    * Fetches SPF record from DNS for a given domain
    * Uses Cloudflare's DNS-over-HTTPS API to query TXT records
    * @param domain - The domain to fetch SPF record for
-   * @returns Raw SPF record string or null if not found
+   * @returns Object with raw SPF record string (or null) and spfRecordCount
    */
-  private async fetchSPFRecord(domain: string): Promise<string | null> {
+  private async fetchSPFRecord(domain: string): Promise<{ record: string | null, spfRecordCount: number }> {
     console.log(`🔍 Fetching SPF record for domain: ${domain}`);
     
     try {
@@ -268,25 +273,28 @@ export class SPFService {
 
       const data: DNSResponse = await response.json();
       
-      // Find SPF record in TXT records (SPF records start with "v=spf1")
-      const spfRecord = data.Answer?.find((record: DNSRecord) => 
-        record.type === 16 && // TXT record type
-        record.data.startsWith('"v=spf1')
+      // Count all SPF records in TXT records (SPF records start with "v=spf1")
+      const spfRecords = (data.Answer || []).filter((record: DNSRecord) => 
+        record.type === 16 && record.data.startsWith('"v=spf1')
       );
+      const spfRecordCount = spfRecords.length;
+
+      // Find the first SPF record (for compatibility with existing logic)
+      const spfRecord = spfRecords[0];
 
       if (spfRecord) {
         // Clean up SPF record: remove embedded \" \" and any remaining double quotes
         let cleanRecord = spfRecord.data.replace(/"\s+"/g, '');
         cleanRecord = cleanRecord.replace(/"/g, '');
         console.log(`✅ Found SPF record for ${domain}: ${cleanRecord}`);
-        return cleanRecord;
+        return { record: cleanRecord, spfRecordCount };
       } else {
         console.log(`⚠️ No SPF record found for domain: ${domain}`);
-        return null;
+        return { record: null, spfRecordCount };
       }
     } catch (error) {
       console.error(`❌ Error fetching SPF record for ${domain}:`, error);
-      return null;
+      return { record: null, spfRecordCount: 0 };
     }
   }
 
@@ -356,7 +364,7 @@ export class SPFService {
    * @param isInitialCall - Whether this is the initial call (used to preserve original record)
    * @returns Complete SPF record with redirect information
    */
-  async getSPFRecord(domain: string, visitedDomains: Set<string> = new Set(), isInitialCall: boolean = true): Promise<SPFRecord | null> {
+  async getSPFRecord(domain: string, visitedDomains: Set<string> = new Set(), isInitialCall: boolean = true): Promise<SPFRecord & { spfRecordCount?: number } | null> {
     console.log(`🚀 Getting SPF record for domain: ${domain} (Initial call: ${isInitialCall})`);
     
     // Prevent infinite redirect loops by tracking visited domains
@@ -370,7 +378,7 @@ export class SPFService {
     console.log(`📋 Updated visited domains: ${Array.from(visitedDomains).join(' -> ')}`);
     
     // Fetch the raw SPF record from DNS
-    const rawRecord = await this.fetchSPFRecord(domain);
+    const { record: rawRecord, spfRecordCount } = await this.fetchSPFRecord(domain);
     if (!rawRecord) {
       console.log(`❌ No SPF record found for domain: ${domain}`);
       return null;
@@ -464,7 +472,8 @@ export class SPFService {
               modifiers: redirectedRecord.modifiers
             },
             processedRedirects: totalProcessedRedirects,
-            processedIncludes: totalProcessedIncludes
+            processedIncludes: totalProcessedIncludes,
+            spfRecordCount
           };
         } else {
           // Return the redirected record with updated redirect chain
@@ -474,7 +483,8 @@ export class SPFService {
             redirects,
             includes: includes, // always an array
             processedRedirects: totalProcessedRedirects,
-            processedIncludes: totalProcessedIncludes
+            processedIncludes: totalProcessedIncludes,
+            spfRecordCount
           };
         }
       } else {
@@ -523,7 +533,8 @@ export class SPFService {
         redirects: redirects.length > 0 ? redirects : undefined,
         includes: includes, // always an array
         processedRedirects: totalProcessedRedirects,
-        processedIncludes: totalProcessedIncludes
+        processedIncludes: totalProcessedIncludes,
+        spfRecordCount
       };
     }
 
@@ -533,10 +544,11 @@ export class SPFService {
       redirects: redirects.length > 0 ? redirects : undefined,
       includes: includes, // always an array
       processedRedirects: totalProcessedRedirects,
-      processedIncludes: totalProcessedIncludes
+      processedIncludes: totalProcessedIncludes,
+      spfRecordCount
     };
     
-    console.log(`✅ Final SPF record for ${domain}: ${redirects.length} redirects, ${includes.length} includes, ${totalProcessedRedirects} total processed redirects, ${totalProcessedIncludes} total processed includes`);
+    console.log(`✅ Final SPF record for ${domain}: ${redirects.length} redirects, ${includes.length} includes, ${totalProcessedRedirects} total processed redirects, ${totalProcessedIncludes} total processed includes, SPF record count: ${spfRecordCount}`);
     return result;
   }
 
