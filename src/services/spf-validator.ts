@@ -381,7 +381,7 @@ export class SPFValidator {
       singleRecord = this.POINTS_SINGLE_RECORD;
       console.log(`[SPF Validator] ✓ Single SPF record: ${this.POINTS_SINGLE_RECORD} points`);
     } else {
-      console.log('[SPF Validator] ~ Multiple records (redirects): 0 points');
+      console.log('[SPF Validator] ~ Multiple records : 0 points');
     }
 
     // Syntax Valid (if no syntax errors)
